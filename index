@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DEX Portfolio</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f0f1a;
+      color: white;
+      padding: 20px;
+    }
+    .btn {
+      background: #2d7dff;
+      padding: 10px 20px;
+      border: none;
+      color: white;
+      font-weight: bold;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .modal-bg {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background-color: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(6px);
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+    }
+    .modal {
+      background: #fff;
+      color: #000;
+      padding: 20px;
+      border-radius: 10px;
+      width: 320px;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      margin: 10px 0;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+    table {
+      width: 100%;
+      margin-top: 30px;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #333;
+    }
+    th {
+      color: #bbb;
+      font-weight: normal;
+    }
+    td.copyable {
+      color: #4faaff;
+      cursor: pointer;
+    }
+    td.copyable:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <button class="btn" onclick="openModal()">+ Add Position</button>
+
+  <div class="modal-bg" id="modalBg">
+    <div class="modal">
+      <h3>Add Position</h3>
+      <input type="text" id="address" placeholder="Contract or Pair Address" />
+      <input type="number" id="quantity" placeholder="Quantity" />
+      <input type="number" id="amountUsd" placeholder="Amount (USD)" />
+      <div style="text-align: right">
+        <button onclick="closeModal()">Cancel</button>
+        <button onclick="addPosition()">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="portfolioTable"></div>
+
+  <script>
+    const portfolio = [];
+
+    function openModal() {
+      document.getElementById('modalBg').style.display = 'flex';
+    }
+
+    function closeModal() {
+      document.getElementById('modalBg').style.display = 'none';
+    }
+
+    async function addPosition() {
+      const address = document.getElementById('address').value.trim();
+      const quantity = parseFloat(document.getElementById('quantity').value);
+      const amountUsd = parseFloat(document.getElementById('amountUsd').value);
+
+      if (!address || isNaN(quantity) || isNaN(amountUsd)) {
+        alert("Please fill in all fields.");
+        return;
+      }
+
+      try {
+        const res = await fetch(`https://api.dexscreener.com/latest/dex/search/?q=${address}`);
+        const data = await res.json();
+
+        if (!data.pairs || data.pairs.length === 0) {
+          alert("Token not found.");
+          return;
+        }
+
+        const token = data.pairs[0];
+        const priceUsd = parseFloat(token.priceUsd);
+        const avgPrice = amountUsd / quantity;
+        const pnl = ((priceUsd - avgPrice) / avgPrice) * 100;
+
+        portfolio.push({
+          symbol: token.baseToken.symbol,
+          chain: token.chainId,
+          priceUsd,
+          quantity,
+          amountUsd,
+          avgPrice,
+          pnl,
+          address
+        });
+
+        renderTable();
+        closeModal();
+      } catch (err) {
+        alert("Failed to fetch token data.");
+        console.error(err);
+      }
+    }
+
+    function renderTable() {
+      let html = `
+        <table>
+          <thead>
+            <tr>
+              <th>NAME</th>
+              <th>CHAIN</th>
+              <th>CURRENT PRICE</th>
+              <th>QUANTITY</th>
+              <th>AMOUNTUSD</th>
+              <th>BUY PRICE</th>
+              <th>PROFIT %</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      for (const p of portfolio) {
+        html += `
+          <tr>
+            <td class="copyable" onclick="copyAddress('${p.address}')">${p.symbol}</td>
+            <td>${p.chain}</td>
+            <td>$${p.priceUsd.toFixed(6)}</td>
+            <td>${p.quantity}</td>
+            <td>$${p.amountUsd}</td>
+            <td>$${p.avgPrice.toFixed(6)}</td>
+            <td style="color:${p.pnl >= 0 ? 'limegreen' : 'red'}">${p.pnl.toFixed(2)}%</td>
+          </tr>
+        `;
+      }
+
+      html += '</tbody></table>';
+      document.getElementById('portfolioTable').innerHTML = html;
+    }
+
+    function copyAddress(address) {
+      navigator.clipboard.writeText(address).then(() => {
+        alert("Copied: " + address);
+      });
+    }
+
+    setInterval(async () => {
+      for (const p of portfolio) {
+        try {
+          const res = await fetch(`https://api.dexscreener.com/latest/dex/search/?q=${p.address}`);
+          const data = await res.json();
+          if (data.pairs && data.pairs[0]) {
+            const priceUsd = parseFloat(data.pairs[0].priceUsd);
+            p.priceUsd = priceUsd;
+            p.pnl = ((priceUsd - p.avgPrice) / p.avgPrice) * 100;
+          }
+        } catch (err) {
+          console.error("Error updating price for", p.symbol);
+        }
+      }
+      renderTable();
+    }, 10000); // update every 10s
+
+  </script>
+</body>
+</html>
