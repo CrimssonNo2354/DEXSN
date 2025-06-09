@@ -13,8 +13,6 @@
       color: #f2f2f2;
       padding: 20px;
     }
-
-    /* Loading Spinner */
     .loader-bg {
       position: fixed;
       inset: 0;
@@ -25,7 +23,6 @@
       z-index: 1000;
       transition: opacity 0.4s ease;
     }
-
     .loader {
       width: 48px;
       height: 48px;
@@ -34,16 +31,13 @@
       border-radius: 50%;
       animation: spin 1s linear infinite;
     }
-
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
-
     .loader-bg.fade-out {
       opacity: 0;
       pointer-events: none;
     }
-
     .btn {
       background: #1a1a1a;
       border: 1px solid #333;
@@ -55,12 +49,10 @@
       margin-bottom: 20px;
       transition: all 0.25s ease;
     }
-
     .btn:hover {
       background: #ffffff10;
       border-color: #555;
     }
-
     .modal-bg {
       position: fixed;
       inset: 0;
@@ -75,13 +67,11 @@
       transition: opacity 0.3s ease, transform 0.3s ease;
       z-index: 999;
     }
-
     .modal-bg.show {
       opacity: 1;
       pointer-events: auto;
       transform: scale(1);
     }
-
     .modal {
       background: #141414;
       color: #fff;
@@ -90,7 +80,6 @@
       width: 360px;
       box-shadow: 0 0 20px rgba(255, 255, 255, 0.05);
     }
-
     input {
       width: 100%;
       padding: 3px;
@@ -101,38 +90,49 @@
       color: #fff;
       font-size: 16px;
     }
-
     table {
       width: 100%;
       margin-top: 20px;
       border-collapse: collapse;
     }
-
     th, td {
       padding: 14px 12px;
       border-bottom: 1px solid #1e1e1e;
       text-align: center;
       vertical-align: middle;
+      cursor: default;
     }
-
+    th:first-child,
+    td:first-child {
+      text-align: left;
+      min-width: 200px;
+    }
     th {
       color: #888;
       font-weight: 500;
       font-size: 13px;
+      cursor: pointer;
     }
-
-    tr:hover {
+    th.sorted-asc::after {
+      content: " ▲";
+      color: #fff;
+    }
+    th.sorted-desc::after {
+      content: " ▼";
+      color: #fff;
+    }
+    tbody tr {
+      transition: background-color 0.2s ease;
+    }
+    tbody tr:hover {
       background-color: #111;
     }
-
     .token-cell {
       display: flex;
       align-items: center;
       gap: 8px;
       line-height: 1;
-      justify-content: center;
     }
-
     .token-cell img {
       width: 24px;
       height: 24px;
@@ -140,17 +140,14 @@
       object-fit: contain;
       background-color: #222;
     }
-
     .copyable {
       color: #5fa9ff;
       cursor: pointer;
     }
-
     .copyable:hover {
       text-decoration: underline;
       color: #90c7ff;
     }
-
     .actions button {
       background: none;
       border: none;
@@ -159,7 +156,6 @@
       font-size: 15px;
       margin-right: 5px;
     }
-
     .actions button:hover {
       color: #fff;
     }
@@ -167,7 +163,6 @@
 </head>
 <body>
 
-  <!-- Loader Spinner -->
   <div class="loader-bg" id="loader">
     <div class="loader"></div>
   </div>
@@ -187,14 +182,9 @@
     </div>
   </div>
 
-  <div class="modal-bg" id="deleteModal">
-    <!-- Delete modal (same as before) -->
-  </div>
-
   <div id="portfolioTable"></div>
 
   <script>
-    // Spinner hide logic
     window.addEventListener("load", () => {
       const loader = document.getElementById("loader");
       loader.classList.add("fade-out");
@@ -204,7 +194,8 @@
     const savedPortfolio = localStorage.getItem('portfolio');
     const portfolio = savedPortfolio ? JSON.parse(savedPortfolio) : [];
     let editIndex = -1;
-    let deleteIndex = -1;
+    let sortBy = '';
+    let sortAsc = true;
 
     function saveToLocalStorage() {
       localStorage.setItem('portfolio', JSON.stringify(portfolio));
@@ -229,38 +220,31 @@
       document.getElementById('modalBg').classList.remove('show');
     }
 
-    function openDeleteModal(index) {
-      // Same as before
-    }
-
-    function closeDeleteModal() {
-      // Same as before
-    }
-
-    function confirmDelete() {
-      // Same as before
-    }
-
     async function savePosition() {
       const address = document.getElementById('address').value.trim();
       const quantity = parseFloat(document.getElementById('quantity').value);
       const amountUsd = parseFloat(document.getElementById('amountUsd').value);
+
       if (!address || isNaN(quantity) || isNaN(amountUsd)) {
         alert("Please fill in all fields.");
         return;
       }
+
       try {
         const res = await fetch(`https://api.dexscreener.com/latest/dex/search/?q=${address}`);
         const data = await res.json();
+
         if (!data.pairs || data.pairs.length === 0) {
           alert("Token not found.");
           return;
         }
+
         const token = data.pairs[0];
         const priceUsd = parseFloat(token.priceUsd);
         const avgPrice = amountUsd / quantity;
         const pnl = ((priceUsd - avgPrice) / avgPrice) * 100;
-        const imageUrl = token.baseToken.imageUrl || '';
+        const imageUrl = token.info?.imageUrl || `https://dd.dexscreener.com/ds-data/tokens/${token.chainId}/${token.baseToken.address.toLowerCase()}.png`;
+
         const position = {
           address,
           symbol: token.baseToken.symbol,
@@ -272,11 +256,13 @@
           pnl,
           imageUrl
         };
+
         if (editIndex >= 0) {
           portfolio[editIndex] = position;
         } else {
           portfolio.push(position);
         }
+
         saveToLocalStorage();
         renderTable();
         closeModal();
@@ -286,31 +272,64 @@
       }
     }
 
+    function sortTable(key) {
+      if (sortBy === key) {
+        sortAsc = !sortAsc;
+      } else {
+        sortBy = key;
+        sortAsc = true;
+      }
+      portfolio.sort((a, b) => {
+        if (a[key] < b[key]) return sortAsc ? -1 : 1;
+        if (a[key] > b[key]) return sortAsc ? 1 : -1;
+        return 0;
+      });
+      renderTable();
+    }
+
     async function updatePrices() {
       for (const p of portfolio) {
         try {
           const res = await fetch(`https://api.dexscreener.com/latest/dex/search/?q=${p.address}`);
           const data = await res.json();
           const token = data.pairs[0];
+
           p.priceUsd = parseFloat(token.priceUsd);
           p.pnl = ((p.priceUsd - p.avgPrice) / p.avgPrice) * 100;
-          p.imageUrl = token.baseToken.imageUrl || p.imageUrl;
+          p.imageUrl = token.info?.imageUrl || `https://dd.dexscreener.com/ds-data/tokens/${token.chainId}/${token.baseToken.address.toLowerCase()}.png`;
+
         } catch (err) {
           console.error("Failed to update price for", p.symbol);
         }
       }
+
       renderTable();
       saveToLocalStorage();
     }
 
     function renderTable() {
-      let html = `<table><thead><tr>
-        <th>NAME</th><th>NETWORK</th><th>PRICE</th><th>QUANTITY</th><th>INVESTED</th><th>AVERAGE PRICE</th><th>PROFIT/LOSS</th><th>ACTIONS</th>
-      </tr></thead><tbody>`;
+      const headers = [
+        { key: 'symbol', label: 'NAME' },
+        { key: 'chain', label: 'NETWORK' },
+        { key: 'priceUsd', label: 'PRICE' },
+        { key: 'quantity', label: 'QUANTITY' },
+        { key: 'amountUsd', label: 'INVESTED' },
+        { key: 'avgPrice', label: 'AVERAGE PRICE' },
+        { key: 'pnl', label: 'PROFIT/LOSS' }
+      ];
+
+      let html = '<table><thead><tr>';
+      headers.forEach(h => {
+        let cls = '';
+        if (sortBy === h.key) cls = sortAsc ? 'sorted-asc' : 'sorted-desc';
+        html += `<th class="${cls}" onclick="sortTable('${h.key}')">${h.label}</th>`;
+      });
+      html += '<th>ACTIONS</th></tr></thead><tbody>';
+
       portfolio.forEach((p, i) => {
         html += `<tr>
           <td class="copyable token-cell" onclick="navigator.clipboard.writeText('${p.address}').then(() => alert('Copied: ${p.address}'))">
-            <img src="${p.imageUrl || 'https://dd.dexscreener.com/static/media/token-default.9e9e5bb7.png'}" alt="logo" onerror="this.onerror=null;this.src='https://dd.dexscreener.com/static/media/token-default.9e9e5bb7.png';" />${p.symbol}
+            <img src="${p.imageUrl}" alt="logo" onerror="this.onerror=null;this.src='https://dd.dexscreener.com/static/media/token-default.9e9e5bb7.png';" />${p.symbol}
           </td>
           <td>${p.chain}</td>
           <td>$${p.priceUsd.toFixed(8)}</td>
@@ -320,10 +339,11 @@
           <td style="color:${p.pnl >= 0 ? '#00c47d' : '#ff5b5b'}">${p.pnl.toFixed(2)}%</td>
           <td class="actions">
             <button onclick="openModal(${i})"><i class="fas fa-edit"></i></button>
-            <button onclick="openDeleteModal(${i})"><i class="fas fa-trash"></i></button>
+            <button onclick="alert('Delete feature coming soon')"><i class="fas fa-trash"></i></button>
           </td>
         </tr>`;
       });
+
       html += '</tbody></table>';
       document.getElementById('portfolioTable').innerHTML = html;
     }
