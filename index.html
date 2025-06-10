@@ -169,6 +169,41 @@
     }
   }
 
+  async function updateTokenPrices() {
+    try {
+      const updatedPortfolio = [...portfolio];
+      let needsUpdate = false;
+      
+      for (let i = 0; i < updatedPortfolio.length; i++) {
+        const p = updatedPortfolio[i];
+        try {
+          const res = await fetch(`https://api.dexscreener.com/latest/dex/search/?q=${p.address}`);
+          const data = await res.json();
+          if (data.pairs && data.pairs.length) {
+            const token = data.pairs[0];
+            const newPrice = parseFloat(token.priceUsd);
+            if (newPrice !== p.priceUsd) {
+              updatedPortfolio[i].priceUsd = newPrice;
+              updatedPortfolio[i].pnl = ((newPrice - p.avgPrice) / p.avgPrice) * 100;
+              needsUpdate = true;
+            }
+          }
+        } catch (e) {
+          console.error(`Error updating price for ${p.symbol}:`, e);
+        }
+      }
+      
+      if (needsUpdate) {
+        // Update the original portfolio array
+        portfolio.length = 0;
+        portfolio.push(...updatedPortfolio);
+        renderTable();
+      }
+    } catch (err) {
+      console.error("Error updating prices:", err);
+    }
+  }
+
   async function savePosition() {
     const address = document.getElementById("address").value.trim();
     const quantity = parseFloat(document.getElementById("quantity").value);
@@ -265,7 +300,11 @@
       setTimeout(() => loader.remove(), 500);
     }
     renderTable();
-    setInterval(() => renderTable(), 10000);
+    
+    // Update prices every 10 seconds
+    setInterval(async () => {
+      await updateTokenPrices();
+    }, 10000);
   });
 </script>
 </body>
